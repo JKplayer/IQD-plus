@@ -1,0 +1,14 @@
+{
+  "name": "IQDplus wplayer1",
+  "description": "IQDplus is a high-performance investment portal specialized in IQD-denominated assets, featuring a Kurdish-inspired design with monthly dividends, referral rewards, and AI-driven portfolio insights.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Investment Tracking",
+    "AI Financial Advice",
+    "Multi-tier Referral System",
+    "Admin Content Management"
+  ]
+}

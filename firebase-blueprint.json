@@ -1,0 +1,112 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account details and financial summary",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "referralCode": { "type": "string" },
+        "referredBy": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "balance": { "type": "number" },
+        "profitBalance": { "type": "number", "description": "Money earned today, waiting for settlement" },
+        "totalInvested": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "balance", "profitBalance"]
+    },
+    "Investment": {
+      "title": "User Investment",
+      "description": "An active or completed investment package",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "packageId": { "type": "string" },
+        "amountIQD": { "type": "number" },
+        "purchaseDate": { "type": "string", "format": "date-time" },
+        "nextPayoutDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "completed", "cancelled"] },
+        "autoReinvest": { "type": "boolean" }
+      },
+      "required": ["userId", "packageId", "amountIQD", "purchaseDate", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial record for deposit, withdrawal, or payout",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["deposit", "withdrawal", "payout", "investment", "referral"] },
+        "amountIQD": { "type": "number" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] }
+      },
+      "required": ["userId", "type", "amountIQD", "timestamp", "status"]
+    },
+    "DepositRequest": {
+      "title": "Deposit Request",
+      "description": "A user's request to deposit funds with a screenshot for proof",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "amountIQD": { "type": "number", "description": "10,000 - 5,000,000 IQD" },
+        "proofUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "rejected"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amountIQD", "proofUrl", "status", "timestamp"]
+    },
+    "Package": {
+      "title": "Investment Package",
+      "description": "Available investment tiers",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "priceIQD": { "type": "number" },
+        "monthlyReturnPercent": { "type": "number" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "priceIQD", "monthlyReturnPercent"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/investments/{investmentId}": {
+      "schema": "Investment",
+      "description": "Active user investments"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Transaction logs"
+    },
+    "/deposits/{depositId}": {
+      "schema": "DepositRequest",
+      "description": "Deposit requests with proof"
+    },
+    "/packages/{packageId}": {
+      "schema": "Package",
+      "description": "Investment package definitions"
+    },
+    "/global/stats": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "totalUsers": { "type": "number" },
+          "totalInvested": { "type": "number" }
+        }
+      },
+      "description": "Global platform statistics"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /deposits/{userId}/{allPaths=**} {
+      // Allow user to read their own proof or admin to read any
+      allow read: if request.auth != null && (
+        request.auth.uid == userId || 
+        firestore.get(/databases/ai-studio-27b3ba5e-8458-41c6-9241-ec5fdc48ec7f/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+      
+      // Allow user to upload proof (max 5MB, image or PDF)
+      allow write: if request.auth != null && request.auth.uid == userId 
+                   && request.resource.size < 5 * 1024 * 1024 
+                   && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+    }
+  }
+}

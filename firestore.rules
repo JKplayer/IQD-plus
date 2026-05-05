@@ -1,0 +1,192 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        ('email' in request.auth.token && (request.auth.token.email == 'system@iqdplus.com' || request.auth.token.email == 'wreawali27@gmail.com' || request.auth.token.email == 'sadakamal951@gmail.com')) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'admin')
+      ); 
+    }
+    
+    function isSystem(data) {
+      return data.get('system_token', '') == 'IQD_PAYOUT_SECRET_2026';
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isServerTimestamp(field) { return incoming().get(field, null) == request.time; }
+
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return (data.get('uid', '') is string)
+        && (data.get('email', '') is string)
+        && (data.get('role', 'user') in ['user', 'admin'])
+        && (data.get('balance', 0) is number)
+        && (data.get('profitBalance', 0) is number)
+        && (data.get('totalInvested', 0) is number)
+        && (data.get('createdAt', '') is string)
+        && (data.get('phoneNumber', '') is string);
+    }
+
+    function isValidInvestment(data) {
+      return (data.get('userId', '') is string)
+        && (data.get('packageId', '') is string)
+        && (data.get('packageName', '') is string)
+        && (data.get('amountIQD', 0) > 0)
+        && (data.get('status', 'active') in ['active', 'completed', 'cancelled'])
+        && (data.get('autoReinvest', false) is bool);
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['userId', 'type', 'amountIQD', 'timestamp', 'status'])
+        && data.amountIQD != 0
+        && data.type in ['deposit', 'withdrawal', 'payout', 'investment', 'referral'];
+    }
+
+    function isValidDeposit(data) {
+      return data.keys().hasAll(['userId', 'userEmail', 'userName', 'amountIQD', 'method', 'proofUrl', 'status', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.amountIQD >= 10000
+        && data.amountIQD <= 5000000
+        && data.status == 'pending'
+        && data.proofUrl is string && data.proofUrl.size() >= 1;
+    }
+
+    function isValidWithdrawal(data) {
+      return data.keys().hasAll(['userId', 'userEmail', 'userName', 'amountIQD', 'method', 'status', 'timestamp', 'accountDetails'])
+        && data.userId == request.auth.uid
+        && data.amountIQD >= 5000
+        && data.status == 'pending'
+        && data.accountDetails is string && data.accountDetails.size() >= 5;
+    }
+
+    function isValidSession(data) {
+      return data.keys().hasAll(['userId', 'timestamp', 'userAgent', 'device'])
+        && data.userId == request.auth.uid;
+    }
+
+    function isValidAdminAlert(data) {
+      return data.keys().hasAll(['type', 'title', 'message', 'status', 'targetId', 'timestamp'])
+        && data.status in ['new', 'resolved', 'ignored']
+        && data.title is string && data.title.size() <= 200
+        && data.message is string && data.message.size() <= 1000;
+    }
+
+    function isValidAdminTask(data) {
+      return data.keys().hasAll(['creatorId', 'creatorEmail', 'title', 'description', 'status', 'priority', 'category', 'createdAt', 'updatedAt'])
+        && data.status in ['todo', 'in-progress', 'completed', 'on-hold']
+        && data.priority in ['low', 'medium', 'high', 'critical']
+        && data.category in ['deposit', 'withdrawal', 'support', 'maintenance']
+        && data.title is string && data.title.size() <= 200
+        && data.description is string && data.description.size() <= 2000;
+    }
+
+    // --- Rules ---
+    match /health_check/{id} {
+      allow read: if true;
+    }
+
+    match /admin_tasks/{taskId} {
+      allow read, update, delete: if isAdmin();
+      allow create: if isSignedIn() && isValidAdminTask(incoming()) && incoming().creatorId == request.auth.uid;
+    }
+
+    match /admin_alerts/{alertId} {
+      allow read, update, delete: if isAdmin();
+      allow create: if isSignedIn() && isValidAdminAlert(incoming());
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      // Allow listing for referral tree and signup lookup
+      allow list: if isAdmin() || 
+        (isSignedIn() && resource.data.referredBy == request.auth.uid) || 
+        (request.query.limit != null && request.query.limit <= 100);
+      
+      allow create: if isValidId(userId) && isSignedIn() && request.auth.uid == userId && isValidUser(incoming()) && incoming().balance == 0 && incoming().profitBalance == 0;
+      allow update: if (isValidId(userId) && isSignedIn() && isValidUser(incoming()) && (
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'photoURL', 'referralCode', 'notificationSettings', 
+          'riskTolerance', 'firstName', 'surname', 'username', 'birthDate', 'uid', 'role',
+          'phoneNumber', 'profitBalance', 'balance', 'totalInvested'
+        ]) && (
+          (!incoming().diff(existing()).affectedKeys().hasAny(['role'])) || (
+            incoming().role == 'admin' && 
+            'email_verified' in request.auth.token && request.auth.token.email_verified == true &&
+            'email' in request.auth.token && (request.auth.token.email == 'wreawali27@gmail.com' || request.auth.token.email == 'sadakamal951@gmail.com')
+          )
+        )) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'totalInvested']))
+      )) || isAdmin() || isSystem(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /investments/{investmentId} {
+      allow get: if isOwner(existing().userId) || isAdmin();
+      allow list: if resource.data.status == 'active' || isAdmin() || isSignedIn();
+      allow create: if isAdmin() || (isSignedIn() && isValidInvestment(incoming()) && isOwner(incoming().userId));
+      allow update: if isAdmin() || ((isOwner(existing().userId) || isSystem(incoming())) && isValidInvestment(incoming()) && (
+        isSystem(incoming()) || incoming().diff(existing()).affectedKeys().hasOnly(['autoReinvest', 'status'])
+      ));
+    }
+
+    match /transactions/{transactionId} {
+      allow get: if isOwner(existing().userId) || isAdmin();
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      // Deposits/Withdrawals are handled by system or verified. 
+      // For this demo, allow user to create withdrawal requests
+      allow create: if isAdmin() || (isSignedIn() && isValidTransaction(incoming())) || isSystem(incoming());
+      allow update, delete: if isAdmin(); // Transactions are immutable once created for users
+    }
+
+    match /deposits/{depositId} {
+      allow get: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAdmin() || (isSignedIn() && isValidDeposit(incoming()));
+      allow update, delete: if isAdmin();
+    }
+
+    match /withdrawals/{withdrawalId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAdmin() || (isSignedIn() && isValidWithdrawal(incoming()));
+      allow update, delete: if isAdmin();
+    }
+
+    match /packages/{packageId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /global/stats {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Admin collection to store admin list
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; 
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin() || isSignedIn() || isSystem(incoming());
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidSession(incoming());
+      allow delete: if isAdmin();
+    }
+  }
+}
